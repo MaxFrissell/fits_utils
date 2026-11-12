@@ -4,11 +4,13 @@ interactive_stacking.py
 
 For every FITS image in an input directory:
   1. Display the image (default zscale stretch).
-  2. Click on the solar system object, or press 's' to skip the frame,
-     or 'q' to stop the selection pass early.
+  2. Click on the solar system object to drop a crosshair on it, click
+     again anywhere to move the crosshair, then press Enter to confirm
+     that frame's position. Press 's' to skip the frame instead, or 'q'
+     to stop the selection pass early.
 
 For every frame that was not skipped, a square cutout centered on the
-clicked point is extracted and the cutouts are median-combined into a
+confirmed point is extracted and the cutouts are median-combined into a
 single stacked image. A second GUI then lets you adjust the zscale
 contrast (and fine-tune vmin/vmax directly) with a live preview before
 saving the final image to disk as inverted greyscale (black = higher
@@ -18,7 +20,8 @@ Usage:
     python3 interactive_stacking.py input_dir output_file_path [-s/--size 355]
 
 Controls in the frame-selection window:
-    left click  - record the object position and move to the next frame
+    left click  - drop/move a crosshair at the object's position
+    Enter       - confirm the crosshair position and move to the next frame
     s           - skip this frame (no cutout is made)
     q           - stop selecting frames (proceeds to stacking with
                   whatever has been collected so far)
@@ -45,6 +48,12 @@ except ImportError:
     pass  # fall back to whatever interactive backend is already configured
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
+
+# matplotlib's default keymap binds 's' to "save figure" (pops up a file
+# dialog) and 'q'/'ctrl+w' to "close figure". Both collide with our own
+# skip/quit/confirm keys below, so clear them out.
+plt.rcParams["keymap.save"] = []
+plt.rcParams["keymap.quit"] = []
 
 FITS_EXTS = (".fits", ".fit", ".fts", ".fits.gz", ".fit.gz")
 
@@ -73,34 +82,56 @@ def load_image_data(path):
 
 
 class PointPicker:
-    """Show one image and let the user click the object, skip, or quit."""
+    """Show one image; click to crosshair a point, Enter confirms it."""
 
     def __init__(self, data, title):
         self.data = data
+        self.title = title
+        self.candidate = None
         self.point = None
         self.skipped = False
         self.quit = False
+        self._vline = None
+        self._hline = None
 
         self.fig, self.ax = plt.subplots(figsize=(8, 8))
         self.fig.canvas.manager.set_window_title(title)
 
         vmin, vmax = ZScaleInterval().get_limits(data)
         self.ax.imshow(data, origin="lower", cmap="gray", vmin=vmin, vmax=vmax)
-        self.ax.set_title(
-            f"{title}\nclick object  |  's' skip  |  'q' quit selection"
-        )
+        self._refresh_title()
 
         self.fig.canvas.mpl_connect("button_press_event", self._on_click)
         self.fig.canvas.mpl_connect("key_press_event", self._on_key)
 
+    def _refresh_title(self):
+        if self.candidate is None:
+            status = "click to mark the object"
+        else:
+            x, y = self.candidate
+            status = f"marked ({x:.1f}, {y:.1f}) — Enter to confirm, click to move"
+        self.ax.set_title(f"{self.title}\n{status}  |  's' skip  |  'q' quit selection")
+
     def _on_click(self, event):
         if event.inaxes != self.ax or event.xdata is None:
             return
-        self.point = (event.xdata, event.ydata)
-        plt.close(self.fig)
+        self.candidate = (event.xdata, event.ydata)
+
+        if self._vline is not None:
+            self._vline.remove()
+            self._hline.remove()
+        self._vline = self.ax.axvline(event.xdata, color="lime", lw=0.8)
+        self._hline = self.ax.axhline(event.ydata, color="lime", lw=0.8)
+
+        self._refresh_title()
+        self.fig.canvas.draw_idle()
 
     def _on_key(self, event):
-        if event.key == "s":
+        if event.key == "enter":
+            if self.candidate is not None:
+                self.point = self.candidate
+                plt.close(self.fig)
+        elif event.key == "s":
             self.skipped = True
             plt.close(self.fig)
         elif event.key == "q":
@@ -226,7 +257,7 @@ def parse_args():
     parser.add_argument("input_dir", help="directory containing FITS images")
     parser.add_argument("output_file_path", help="path to write the final image (e.g. output.png)")
     parser.add_argument(
-        "-s", "--size", type=int, default=355,
+        "-s", "--size", type=int, default=335,
         help="side length in pixels of the square cutout (default: 355)",
     )
     return parser.parse_args()
