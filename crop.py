@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-make_cutout.py
+crop.py
 
 Create a central NxN pixel cutout from a PNG or FITS image.
 
 USAGE:
-    python3 make_cutout.py path/to/image N [--to_fits] [--to_png]
+    python3 crop.py path/to/image N [--to_fits] [--to_png]
 
 ARGUMENTS:
     path/to/image   Path to the input image. Must end in .png, .fits, or .fit
